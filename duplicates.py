@@ -144,7 +144,7 @@ def remove_duplicates(l, cl: ChangeLog, directory: str, dry_run: bool, recursive
                     # Determine the shortest file name
                     shortest, others = shortest_filename(files)
 
-                    l.info('{}: {} duplicates found'.format(shortest, file_count))
+                    l.info('{}: {} duplicates found'.format(shortest, len(others)))
 
                     # Remove duplicate files
                     for duplicate in others:

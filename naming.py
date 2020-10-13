@@ -10,7 +10,7 @@ UPPERCASE = 'uppercase'
 STRIPPING_CHARS = " _-"
 
 
-def check_filename(l, in_name: str, style=None, space_char=None):
+def check_filename(l, filename: str, style=None, space_char=None):
     """
     Parse a given filename for these consistency errors:
     - Extraneous spaces
@@ -19,12 +19,12 @@ def check_filename(l, in_name: str, style=None, space_char=None):
     - Spaces directly before or after a "."
     - Optionally enforce naming conventions
     :param l: logger instance
-    :param in_name: input filename
-    :param style: enforce a particular naming style (CAPITALIZED, LOWERCASE, UPPERCASE)
+    :param filename: input filename
+    :param style: enforce a particular naming style (CAPITALIZED, TITLECASE, LOWERCASE, UPPERCASE)
     :param space_char: replace spaces in a file name with this character
     :return: a corrected filename
     """
-    pl_obj = pathlib.Path(in_name)
+    pl_obj = pathlib.Path(filename)
     name = pl_obj.stem
     ext = pl_obj.suffix
 
@@ -32,12 +32,12 @@ def check_filename(l, in_name: str, style=None, space_char=None):
         name_stripped = name.strip(STRIPPING_CHARS)
 
         if name_stripped != name:
-            l.debug('{}: needed stripping'.format(in_name))
+            l.debug('{}: needed stripping'.format(filename))
 
         name_spaces = ' '.join(name_stripped.split())
 
         if name_spaces != name_stripped:
-            l.debug('{}: had extraneous spaces'.format(in_name))
+            l.debug('{}: had extraneous spaces'.format(filename))
 
         name = name_spaces
 
@@ -54,7 +54,7 @@ def check_filename(l, in_name: str, style=None, space_char=None):
                 name_style = name
 
             if name_style != name:
-                l.debug('{}: naming style enforced'.format(in_name))
+                l.debug('{}: naming style enforced'.format(filename))
 
             name = name_style
 
@@ -62,19 +62,19 @@ def check_filename(l, in_name: str, style=None, space_char=None):
             name_replaced = name.replace(' ', space_char)
 
             if name_replaced != name:
-                l.debug('{}: spaces replaced with "{}"'.format(in_name, space_char))
+                l.debug('{}: spaces replaced with "{}"'.format(filename, space_char))
 
             name = name_replaced
 
     ext_spaces = ext.replace(' ', '')
 
     if ext_spaces != ext:
-        l.debug('{}: extension spaces removed'.format(in_name))
+        l.debug('{}: extension spaces removed'.format(filename))
 
     ext_lowering = ext_spaces.lower()
 
     if ext_lowering != ext_spaces:
-        l.debug('{}: extension converted to lowercase'.format(in_name))
+        l.debug('{}: extension converted to lowercase'.format(filename))
 
     return name + ext_lowering
 
@@ -84,7 +84,7 @@ def check_files(l, files: list, style=None, space_char=None):
     Generate a dictionary of files to be renamed and the new name
     :param l: logger instance
     :param files: a list of file paths to check
-    :param style: enforce a particular naming style (CAPITALIZED, LOWERCASE, UPPERCASE)
+    :param style: enforce a particular naming style (CAPITALIZED, TITLECASE, LOWERCASE, UPPERCASE)
     :param space_char: replace spaces in a file name with this character
     :return: A dictionary in form of {<path>: <new name>}
     """
@@ -111,7 +111,7 @@ def rename_files(l, cl: ChangeLog, directory: str, files: list, dry_run: bool,
     :param directory: directory the files are contained in
     :param files: a list of file names
     :param dry_run: True will not apply changes, only log them
-    :param style: enforce a particular naming style (CAPITALIZED, LOWERCASE, UPPERCASE)
+    :param style: enforce a particular naming style (CAPITALIZED, TITLECASE, LOWERCASE, UPPERCASE)
     :param space_char: replace spaces in a file name with this character
     """
 
@@ -142,7 +142,7 @@ def rename_dir(l, cl: ChangeLog, directory: str, dry_run: bool, recursive: bool,
     :param directory: directory that the files are contained in
     :param dry_run: True will not apply changes, only log them
     :param recursive: True to recursively enter sub-directories
-    :param style: enforce a particular naming style (CAPITALIZED, LOWERCASE, UPPERCASE)
+    :param style: enforce a particular naming style (CAPITALIZED, TITLECASE, LOWERCASE, UPPERCASE)
     :param space_char: replace spaces in a file name with this character
     """
 
