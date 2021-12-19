@@ -12,7 +12,7 @@ class ChangeLog:
         :return: the list of changes
         """
         return self._changes
-    
+
     @property
     def counter(self):
         """
@@ -27,18 +27,16 @@ class ChangeLog:
             'changes': self._changes
         }
 
-    def addChange(self, operation: str, action: str, executed: bool, **kwargs):
+    def addChange(self, operation: str, executed: bool, **kwargs):
         """
         Record a new operation
         :param operation: Arbitrary name of the operation
-        :param action:  Arbitrary action name
         :param executed: Weather the action was carried out
         :param kwargs: Any related data that will be appended
         """
         change = {
             'id': self._counter,
             'operation': operation,
-            'action': action,
             'executed': executed
         }
         change.update(kwargs)

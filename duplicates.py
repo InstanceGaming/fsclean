@@ -1,164 +1,145 @@
 import os
-import pathlib
-import hashlib
+import filecmp
+import logging
 from common import ChangeLog
+from collections import defaultdict
 
 
-def hash_file(l, path):
+LOG = logging.getLogger('fsclean.duplicates')
+
+
+def shortest_filenames(files: list):
     """
-    Compute the hash of a files contents
-    Will return a size of -1 in error
-    :param l: logger instance
-    :param path: a path to a file
-    :return: the hash in hexadecimal and the size of the file
-    """
-
-    hf = hashlib.sha512()
-    size = -1
-
-    if os.path.exists(path):
-        try:
-            with open(path, 'rb') as fs:
-                while True:
-                    # read in the recommended amount of bytes
-                    # for the given hashing algorithm
-                    chunk = fs.read(hf.block_size)
-
-                    # if there are no bytes read,
-                    # break, as the file is empty
-                    if not chunk:
-                        break
-
-                    hf.update(chunk)
-                size = fs.tell()
-        except IOError as e:
-            l.error('failed to read {}: {}'.format(path, str(e)))
-    else:
-        l.warn('{}: does not exist, skipping'.format(path))
-
-    return hf.hexdigest(), size
-
-
-def shortest_filename(files: list):
-    """
-    Determine the shortest file name out of a list of possible names
+    Determine the shortest filenames out of a list of possible names.
     :param files: a list of file names
-    :return: the shortest filename and all the rest
+    :return: the shortest filenames and all the rest minus the shortest
     """
 
-    possible = {}
+    possible = defaultdict(list)
 
     for file in files:
-        filename = pathlib.Path(file).stem  # Without extension
-        size = len(filename)
-        if possible.get(size):
-            possible[size].append(file)
-        else:
-            possible.update({size: [file]})
+        possible[len(file)].append(file)
 
-    shortest = None
+    min_length = min(possible.keys())
+    shortest = possible[min_length]
     others = []
 
-    for size, possible_files in possible.items():
-        sorted_files = sorted(possible_files, key=str.lower)
-        if size == min(possible.keys()):
-            shortest = sorted_files[0]
-        else:
-            others.extend(sorted_files)
+    for k, v in possible.items():
+        if k != min_length:
+            others.extend(v)
 
     return shortest, others
 
 
-def find_duplicates(l, directory: str, recursive: bool, preprocessed=None):
+def get_most_recent_file(files):
+    mod_map = defaultdict(str)
+
+    for file in files:
+        mod_time = os.path.getmtime(file)
+        # does not handle if two files have the exact same mod time
+        mod_map[mod_time] = file
+
+    return mod_map[max(mod_map.keys())]
+
+
+def list_except_one(l: list, o: object):
+    index = l.index(o)
+    return l[:index] + l[index + 1:]
+
+
+def find_duplicates(directory: str,
+                    recursive: bool):
     """
-    Compare and locate duplicate files in a directory
-    :param l: logger instance
-    :param directory: the directory to search
+    Locate duplicate files starting at `directory`.
+
+    :param directory: the folder to search
     :param recursive: True to recursively consider sub-directories
-    :param preprocessed: used for recursion; a dictionary of existing hashes
-    :return: a dictionary of hashes and file names in form of {<hash>: [<filename>]}
+    :return: a map of file paths to other duplicates
     """
+    file_map = defaultdict(list)
 
-    processed = preprocessed or {}
+    try:
+        for cd, dirs, files in os.walk(directory):
+            files = [os.path.join(cd, f) for f in files]
+            for file in files:
+                size = os.stat(file).st_size
 
-    if os.path.exists(directory):
-        if os.path.isdir(directory):
-            try:
-                for cd, dirs, files in os.walk(directory):
-                    l.info('working in {} ({} files, {} sub directories)'.format(cd, len(files), len(dirs)))
+                if size > 0:
+                    pool = list_except_one(files, file)
+                    for other_file in pool:
+                        if other_file in file_map.keys():
+                            continue
 
-                    for file in files:
-                        path = os.path.join(cd, file)
-                        hash, size = hash_file(l, path)
+                        other_size = os.stat(other_file).st_size
 
-                        if size >= 0:
-                            l.debug('{}: {}B, hash is {}'.format(path, size, hash[0:16]))
+                        if other_size == size:
+                            LOG.debug(f'content comparison on "{file}" <-> '
+                                      f'"{other_file}"')
+                            # cmp() includes comparison caching
+                            if filecmp.cmp(file, other_file):
+                                file_map[file].append(other_file)
 
-                            if hash in processed.keys():
-                                existing_hash = processed[hash]
-                                l.debug('{}: duplicate {}'.format(path, len(existing_hash)))
-                                existing_hash.append(path)
-                            else:
-                                processed.update({hash: [path]})
-                                l.debug('{}: unique'.format(path))
-                        else:
-                            l.debug('{}: skipped'.format(path))
+            if not recursive:
+                break
+    except OSError as e:
+        LOG.error(
+            'failed to search "{}": {}'.format(directory, str(e)))
 
-                    if recursive:
-                        for sub in dirs:
-                            processed = find_duplicates(l, sub, recursive, preprocessed=processed)
-            except OSError as e:
-                l.error('failed to enumerate {}: {}'.format(directory, str(e)))
-        else:
-            l.error('"{}" is not a directory'.format(directory))
-    else:
-        l.error('"{}" does not exist'.format(directory))
-
-    return processed
+    return file_map
 
 
-def remove_duplicates(l, cl: ChangeLog, directory: str, dry_run: bool, recursive: bool):
+def remove_duplicates(cl: ChangeLog,
+                      directory: str,
+                      dry_run: bool,
+                      recursive: bool):
     """
     Find and remove file duplicates
-    :param l: logger instance
     :param cl: ChangeLog instance
     :param directory: directory to search
     :param dry_run: True will not apply changes, only log them
     :param recursive: True to recursively consider sub-directories
     """
+    bytes_freed = 0
 
-    if os.path.exists(directory):
-        if os.path.isdir(directory):
-            # Generate a dictionary of hashes of files
-            processed = find_duplicates(l, directory, recursive)
+    # Generate a dictionary of duplicate files
+    file_map = find_duplicates(directory,
+                               recursive)
 
-            # Find hashes with more than one file name
-            # then remove all but the one with the shortest file name
-            for hash, files in processed.items():
-                file_count = len(files)
-                l.debug('{}: {} files'.format(hash[0:16], file_count))
+    # Remove all files but the one with the shortest file name
+    for path, duplicates in file_map.items():
+        # Determine the shortest file name
+        shortest, others = shortest_filenames((duplicates + [path]))
+        chosen_name = shortest[0] if len(shortest) == 1 else \
+            get_most_recent_file(shortest)
 
-                if file_count == 1:
-                    l.info('{}: no duplicates'.format(files[0]))
-                elif file_count > 1:
-                    # Determine the shortest file name
-                    shortest, others = shortest_filename(files)
+        LOG.info('"{}": {} duplicates found'.format(chosen_name,
+                                                    len(others)))
 
-                    l.info('{}: {} duplicates found'.format(shortest, len(others)))
+        # Remove duplicate files
+        for duplicate in others:
+            LOG.info('"{}": remove duplicate "{}"'.format(chosen_name,
+                                                          duplicate))
 
-                    # Remove duplicate files
-                    for duplicate in others:
-                        l.info('{}: remove duplicate {}'.format(shortest, duplicate))
-
-                        if not dry_run:
-                            try:
-                                os.remove(duplicate)
-                                cl.addChange(__name__, 'remove', True, path=duplicate, original=shortest)
-                            except OSError as e:
-                                l.error('{}: failed to remove {}: {}'.format(shortest, duplicate, str(e)))
-                        else:
-                            cl.addChange(__name__, 'remove', False, path=duplicate, original=shortest)
-        else:
-            l.error('"{}" is not a directory'.format(directory))
-    else:
-        l.error('"{}" does not exist'.format(directory))
+            if not dry_run:
+                try:
+                    bytes_freed += os.stat(duplicate).st_size
+                    os.remove(duplicate)
+                    cl.addChange(__name__,
+                                 True,
+                                 path=duplicate,
+                                 original=chosen_name)
+                except OSError as e:
+                    LOG.error(f'"{chosen_name}": failed to remove '
+                              f'"{duplicate}": {str(e)}')
+                    cl.addChange(__name__,
+                                 False,
+                                 path=duplicate,
+                                 original=chosen_name,
+                                 message=str(e),
+                                 errno=e.errno)
+            else:
+                cl.addChange(__name__,
+                             False,
+                             path=duplicate,
+                             original=chosen_name)
+    return bytes_freed
