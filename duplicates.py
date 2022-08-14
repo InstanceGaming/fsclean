@@ -59,7 +59,7 @@ def find_duplicates(directory: str,
     file_map = defaultdict(list)
 
     try:
-        for cd, dirs, files in os.walk(directory):
+        for cd, dirs, files in os.walk(directory, followlinks=False):
             files = [os.path.join(cd, f) for f in files]
             for file in files:
                 size = os.stat(file).st_size
@@ -123,11 +123,19 @@ def remove_duplicates(cl: ChangeLog,
             if not dry_run:
                 try:
                     bytes_freed += os.stat(duplicate).st_size
-                    os.remove(duplicate)
-                    cl.addChange(__name__,
-                                 True,
-                                 path=duplicate,
-                                 original=chosen_name)
+                    if os.path.exists(duplicate):
+                        os.remove(duplicate)
+                        cl.addChange(__name__,
+                                     True,
+                                     path=duplicate,
+                                     original=chosen_name)
+                    else:
+                        LOG.error(f'"{chosen_name}": duplicate does not exist')
+                        cl.addChange(__name__,
+                                     False,
+                                     path=duplicate,
+                                     original=chosen_name,
+                                     message='duplicate does not exist')
                 except OSError as e:
                     LOG.error(f'"{chosen_name}": failed to remove '
                               f'"{duplicate}": {str(e)}')

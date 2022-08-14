@@ -1,6 +1,8 @@
 import os
 import logging
 import pathlib
+import re
+
 from common import ChangeLog
 
 
@@ -8,6 +10,9 @@ CAPITALIZED = 'capitalized'
 TITLECASE = 'titlecase'
 LOWERCASE = 'lowercase'
 UPPERCASE = 'uppercase'
+
+ADJACENT_PERIOD_PATTERN = re.compile(r'([^A-Z\d)\]])?\.([^A-Z\d(\[])?',
+                                     flags=re.IGNORECASE)
 
 STYLE_NAMES = [
     CAPITALIZED,
@@ -26,7 +31,7 @@ def check_filename(filename: str, style=None, space_char=None):
     - Extraneous spaces
     - Uppercase extension names
     - Stripping beginning and end of STRIPPING_CHARS
-    - Spaces directly before or after a "."
+    - Anything but alphanumerics before or after "."
     - Optionally enforce naming conventions
     :param filename: input filename
     :param style: enforce a particular naming style
@@ -87,7 +92,16 @@ def check_filename(filename: str, style=None, space_char=None):
     if ext_lowering != ext_spaces:
         LOG.debug('"{}": extension converted to lowercase'.format(filename))
 
-    return name + ext_lowering
+    first_stage = name + ext_lowering
+    adjacent_other = ADJACENT_PERIOD_PATTERN.sub('.', first_stage)
+
+    if adjacent_other != first_stage:
+        pattern_text = ADJACENT_PERIOD_PATTERN.pattern
+        LOG.debug(f'"{filename}": removed chars adjacent to period matching '
+                  f'"{pattern_text}"')
+
+    second_stage = adjacent_other
+    return second_stage
 
 
 def check_files(files: list, style=None, space_char=None):
@@ -136,8 +150,16 @@ def rename_files(cl: ChangeLog, directory: str, files: list, dry_run: bool,
 
         if not dry_run:
             try:
-                os.rename(path, dest)
-                cl.addChange(__name__, True, src=path, dest=dest)
+                if not os.path.exists(dest):
+                    os.rename(path, dest)
+                    cl.addChange(__name__, True, src=path, dest=dest)
+                else:
+                    LOG.warning('"{}": destination already exists'.format(path))
+                    cl.addChange(__name__,
+                                 False,
+                                 src=path,
+                                 dest=dest,
+                                 message='destination already exists')
             except OSError as e:
                 LOG.error('failed to rename "{}": {}'.format(path, str(e)))
                 cl.addChange(__name__,
@@ -164,7 +186,7 @@ def rename_dir(cl: ChangeLog, directory: str, dry_run: bool, recursive: bool,
     """
 
     try:
-        for cd, dirs, files in os.walk(directory):
+        for cd, dirs, files in os.walk(directory, followlinks=False):
             LOG.info(f'working in "{cd}" ({len(files)} files, '
                      f'{len(dirs)} sub directories)')
 

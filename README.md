@@ -7,7 +7,7 @@ What this program does:
     - Extraneous spaces
     - Uppercase extension names
     - Stripping beginning and end of " ", "_", "-"
-    - Spaces directly before or after a "."
+    - Non alphanumerics or `).(`, `].[` directly before or after a "."
 - Remove empty files and folders (`empties` operation).
 - Enforce file name style like all uppercase, lowercase, capitalized or title case. See `--style`.
 - Remove or replace spaces in file names. See `--space`.

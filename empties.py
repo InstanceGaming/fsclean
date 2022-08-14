@@ -10,7 +10,7 @@ def remove_empty(cl: ChangeLog,
                  directory,
                  dry_run,
                  recursive):
-    for cd, dirs, files in os.walk(directory):
+    for cd, dirs, files in os.walk(directory, followlinks=False):
         files = [os.path.join(cd, f) for f in files]
         for file in files:
             size = os.stat(file).st_size
@@ -37,26 +37,37 @@ def remove_empty(cl: ChangeLog,
                                  path=file)
         for sd in dirs:
             sd_path = os.path.join(cd, sd)
-            content_count = os.listdir(sd_path)
-            if len(content_count) == 0:
-                LOG.info(f'remove empty directory "{sd_path}"')
-
-                if not dry_run:
-                    try:
-                        os.rmdir(sd_path)
-                        cl.addChange(__name__,
-                                     True,
-                                     path=sd_path)
-                    except OSError as e:
-                        LOG.error(f'failed to remove "{sd_path}": {str(e)}')
-                        cl.addChange(__name__,
-                                     False,
-                                     path=sd_path,
-                                     message=str(e),
-                                     errno=e.errno)
-                else:
+            if os.path.exists(sd_path):
+                content = []
+                try:
+                    content = os.listdir(sd_path)
+                except OSError as e:
+                    LOG.error(f'failed to list directory "{sd_path}": {str(e)}')
                     cl.addChange(__name__,
                                  False,
-                                 path=sd_path)
+                                 path=sd_path,
+                                 message=str(e),
+                                 errno=e.errno)
+
+                if len(content) == 0:
+                    LOG.info(f'remove empty directory "{sd_path}"')
+
+                    if not dry_run:
+                        try:
+                            os.rmdir(sd_path)
+                            cl.addChange(__name__,
+                                         True,
+                                         path=sd_path)
+                        except OSError as e:
+                            LOG.error(f'failed to remove "{sd_path}": {str(e)}')
+                            cl.addChange(__name__,
+                                         False,
+                                         path=sd_path,
+                                         message=str(e),
+                                         errno=e.errno)
+                    else:
+                        cl.addChange(__name__,
+                                     False,
+                                     path=sd_path)
         if not recursive:
             break
